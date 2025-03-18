@@ -78,5 +78,5 @@ bindgen \
  crates/glfw3-sys/bindgen/glfw3.h
 
 # Force all constants to be signed int
-sed -i s/u32/c_int/ crates/glfw3-sys/src/ffi/constants.rs
-sed -i s/i32/c_int/ crates/glfw3-sys/src/ffi/constants.rs
+sed -i '' -e 's/u32/c_int/' crates/glfw3-sys/src/ffi/constants.rs
+sed -i '' -e 's/i32/c_int/' crates/glfw3-sys/src/ffi/constants.rs
