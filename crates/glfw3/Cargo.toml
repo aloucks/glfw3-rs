@@ -1,6 +1,14 @@
 [package]
 name = "glfw3"
-version = "0.1.0"
+version = "0.1.0+3.4"
 edition = "2021"
 
 [dependencies]
+bitflags = "2"
+glfw3-sys = { path = "../glfw3-sys", version = "0.1.0" }
+log = "0.4"
+
+[features]
+default = ["vendored"]
+wayland = ["glfw3-sys/wayland"]
+vendored = ["glfw3-sys/vendored"]
