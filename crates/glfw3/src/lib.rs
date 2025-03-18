@@ -550,6 +550,8 @@ mod tests {
     assert_not_impl!(Window, Send, Sync);
     assert_not_impl!(Monitor, Send, Sync);
 
+    const INIT_HINTS: &[InitHint] = &[InitHint::Platform(Platform::Null)];
+
     #[test]
     fn platform_supported() {
         assert!(Glfw::platform_supported(Platform::Null));
@@ -557,7 +559,7 @@ mod tests {
 
     #[test]
     fn init() {
-        let glfw = Glfw::init(&[InitHint::Platform(Platform::Null)]).expect("it failed");
+        let glfw = Glfw::init(INIT_HINTS).expect("it failed");
         assert_eq!(Platform::Null, glfw.get_platform());
         println!("{:?}", glfw.get_platform());
     }
@@ -570,22 +572,22 @@ mod tests {
 
     #[test]
     fn foo1() {
-        let _glfw = Glfw::init(&[]).unwrap();
+        let _glfw = Glfw::init(INIT_HINTS).unwrap();
     }
 
     #[test]
     fn foo2() {
-        let _glfw = Glfw::init(&[]).unwrap();
+        let _glfw = Glfw::init(INIT_HINTS).unwrap();
     }
 
     #[test]
     fn foo3() {
-        let _glfw = Glfw::init(InitHint::none()).unwrap();
+        let _glfw = Glfw::init(INIT_HINTS).unwrap();
     }
 
     #[test]
     fn get_monitors() {
-        let glfw = Glfw::init(&[InitHint::Platform(Platform::Null)]).unwrap();
+        let glfw = Glfw::init(INIT_HINTS).unwrap();
         let monitors = glfw.get_monitors();
         for monitor in monitors.iter() {
             println!("name: {}", monitor.get_name());
@@ -596,7 +598,7 @@ mod tests {
 
     #[test]
     fn create_window() {
-        let glfw = Glfw::init(&[InitHint::Platform(Platform::Null)]).unwrap();
+        let glfw = Glfw::init(&INIT_HINTS).unwrap();
         let _window = glfw
             .create_window(
                 &[WindowHint::ClientApi(ClientApi::None)],

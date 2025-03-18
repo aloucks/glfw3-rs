@@ -7,11 +7,12 @@ pub use ffi::*;
 
 #[cfg(test)]
 mod tests {
-    use crate as sys;
+    use crate::{self as sys, GLFW_PLATFORM, GLFW_PLATFORM_NULL};
 
     #[test]
     fn glfw_init_terminate() {
         unsafe {
+            sys::glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_NULL);
             let status = sys::glfwInit();
             assert_eq!(sys::GLFW_TRUE, status);
             sys::glfwTerminate();
