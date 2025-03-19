@@ -1,4 +1,4 @@
-use core::ffi::{c_char, c_double, c_float, c_int, c_uint, CStr};
+use core::ffi::{c_int, CStr};
 use glfw3_sys::{self as sys};
 use std::{
     ffi::CString,
@@ -12,6 +12,11 @@ use std::{
 };
 
 mod callbacks;
+mod monitor;
+mod window;
+
+pub use monitor::*;
+pub use window::*;
 
 /// Unwrap errors that are expected to be impossible to happen unless
 /// GLFW has not been initialized as described in the function documentation.
@@ -22,34 +27,6 @@ mod callbacks;
 const GLFW_NOT_INITIALIZED: &str = "GLFW has not been initialized";
 
 static INIT: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
-
-#[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct WindowId(usize);
-
-impl WindowId {
-    pub fn window_ptr(self) -> *const sys::GLFWwindow {
-        self.0 as *const _
-    }
-
-    pub fn window_mut_ptr(self) -> *mut sys::GLFWwindow {
-        self.0 as *mut _
-    }
-}
-
-#[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct MonitorId(usize);
-
-impl MonitorId {
-    pub fn monitor_ptr(self) -> *const sys::GLFWmonitor {
-        self.0 as *const _
-    }
-
-    pub fn monitor_mut_ptr(self) -> *mut sys::GLFWmonitor {
-        self.0 as *mut _
-    }
-}
 
 #[derive(Debug)]
 struct Terminate {
@@ -118,7 +95,7 @@ impl TryFrom<i32> for Platform {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum WaylandLibdecor {
+pub enum WaylandLibDecor {
     Prefer,
     Disable,
 }
@@ -141,7 +118,7 @@ pub enum InitHint {
     JoystickHatButtons(bool),
     CocoaChdirResources(bool),
     CocoaMenubar(bool),
-    WaylandLibdecor(WaylandLibdecor),
+    WaylandLibDecor(WaylandLibDecor),
     X11XcbVulkanSurface(bool),
     AnglePlatformType(AnglePlatformType),
 }
@@ -159,7 +136,7 @@ impl InitHint {
             InitHint::AnglePlatformType(AnglePlatformType::None),
             InitHint::CocoaChdirResources(true),
             InitHint::CocoaMenubar(true),
-            InitHint::WaylandLibdecor(WaylandLibdecor::Prefer),
+            InitHint::WaylandLibDecor(WaylandLibDecor::Prefer),
             InitHint::X11XcbVulkanSurface(true),
         ]
     }
@@ -257,21 +234,14 @@ impl Glfw {
 
     #[doc(alias = "glfwGetPlatform")]
     pub fn get_platform(&self) -> Platform {
-        unsafe {
-            let platform = sys::glfwGetPlatform();
-            if platform == Platform::Win32 as i32 {
-                Platform::Win32
-            } else if platform == Platform::Cocoa as i32 {
-                Platform::Cocoa
-            } else if platform == Platform::Wayland as i32 {
-                Platform::Wayland
-            } else if platform == Platform::X11 as i32 {
-                Platform::X11
-            } else if platform == Platform::Null as i32 {
-                Platform::Null
-            } else {
-                panic!("Unknown platform: {:?}", platform)
-            }
+        let platform = unsafe { sys::glfwGetPlatform() };
+        match platform {
+            sys::GLFW_PLATFORM_WIN32 => Platform::Win32,
+            sys::GLFW_PLATFORM_COCOA => Platform::Cocoa,
+            sys::GLFW_PLATFORM_WAYLAND => Platform::Wayland,
+            sys::GLFW_PLATFORM_X11 => Platform::X11,
+            sys::GLFW_PLATFORM_NULL => Platform::Null,
+            _ => Platform::Any,
         }
     }
 
@@ -305,7 +275,7 @@ impl Glfw {
             let window_ptr =
                 sys::glfwCreateWindow(width, height, title.as_ptr(), monitor_ptr, share_ptr);
             Glfw::get_error().map_err(|err| CreateWindowError::CreateWindow(err))?;
-            set_window_callbacks(window_ptr);
+            callbacks::set_window_callbacks(window_ptr);
             Ok(Window {
                 window_ptr,
                 _terminate: Rc::clone(&self.terminate),
@@ -330,20 +300,6 @@ impl Glfw {
             monitors
         }
     }
-
-    // pub fn poll_events<F>(&self, mut f: F) -> Result<(), Error>
-    // where
-    //     F: FnMut(WindowId, (f64, WindowEvent)) -> Option<(f64, WindowEvent)>,
-    // {
-    //     let _unset_handler_guard = unsafe {
-    //         callbacks::set_handler(&mut f);
-    //     };
-    //     unsafe {
-    //         sys::glfwPollEvents();
-    //         get_error()?;
-    //     }
-    //     Ok(())
-    // }
 
     pub fn poll_events<F>(&self, event_handler: &mut F) -> Result<(), Error>
     where
@@ -383,62 +339,6 @@ impl Glfw {
             Glfw::get_error()?;
         }
         Ok(())
-    }
-}
-
-pub struct Window {
-    window_ptr: *mut sys::GLFWwindow,
-    _terminate: Rc<Terminate>,
-}
-
-impl Window {
-    pub fn window_id(&self) -> WindowId {
-        WindowId(self.window_ptr as usize)
-    }
-
-    pub fn make_context_current(&self) -> Result<(), Error> {
-        unsafe {
-            sys::glfwMakeContextCurrent(self.window_ptr);
-            Glfw::get_error()
-        }
-    }
-
-    pub fn swap_buffers(&self) -> Result<(), Error> {
-        unsafe {
-            sys::glfwSwapBuffers(self.window_ptr);
-            Glfw::get_error()
-        }
-    }
-}
-
-pub struct Monitor {
-    monitor_ptr: *mut sys::GLFWmonitor,
-    _terminate: Rc<Terminate>,
-}
-
-impl Monitor {
-    pub fn monitor_id(&self) -> MonitorId {
-        MonitorId(self.monitor_ptr as usize)
-    }
-
-    #[doc(alias = "glfwGetMonitorName")]
-    pub fn get_name(&self) -> String {
-        unsafe {
-            let name_ptr = sys::glfwGetMonitorName(self.monitor_ptr);
-            Glfw::get_error().expect(GLFW_NOT_INITIALIZED);
-            CStr::from_ptr(name_ptr).to_string_lossy().into_owned()
-        }
-    }
-}
-
-impl Drop for Window {
-    fn drop(&mut self) {
-        unsafe {
-            sys::glfwDestroyWindow(self.window_ptr);
-            if let Some(err) = Glfw::get_error().err() {
-                log::warn!("glfwDestroyWindow failed: {:?}", err);
-            }
-        }
     }
 }
 
@@ -882,274 +782,6 @@ impl TryFrom<i32> for Action {
         }
         Err(value)
     }
-}
-
-// pub unsafe fn install_callbacks(window: *mut sys::GLFWwindow) {
-
-//     unsafe extern "C" fn window_refresh_callback(window: *mut sys::GLFWwindow) {
-//         let time = sys::glfwGetTime();
-//         let event = (time, WindowEvent::Refresh);
-//         callbacks::call_handler(WindowId(window as usize), event);
-//     }
-
-//     sys::glfwSetKeyCallback(window, callback)
-
-//     sys::glfwSetWindowRefreshCallback(window, Some(window_refresh_callback));
-// }
-
-// pub fn poll_events<F>(event_handler: &mut F)
-// where
-//     F: FnMut(WindowId, (f64, WindowEvent)) -> Option<(f64, WindowEvent)>,
-// {
-//     let _unset_handler_guard = callbacks::set_handler(event_handler);
-//     unsafe {
-//         sys::glfwPollEvents();
-//     }
-// }
-
-// pub fn wait_events<F>(event_handler: &mut F)
-// where
-//     F: FnMut(WindowId, (f64, WindowEvent)) -> Option<(f64, WindowEvent)>,
-// {
-//     let _unset_handler_guard = callbacks::set_handler(event_handler);
-//     unsafe {
-//         sys::glfwWaitEvents();
-//     }
-// }
-
-// pub fn wait_events_timeout<F>(event_handler: &mut F, timeout: Duration)
-// where
-//     F: FnMut(WindowId, (f64, WindowEvent)) -> Option<(f64, WindowEvent)>,
-// {
-//     let _unset_handler_guard = callbacks::set_handler(event_handler);
-//     unsafe {
-//         sys::glfwWaitEventsTimeout(timeout.as_secs_f64());
-//     }
-// }
-
-unsafe extern "C" fn window_refresh_callback(window: *mut sys::GLFWwindow) {
-    let time = sys::glfwGetTime();
-    let event = (time, WindowEvent::Refresh);
-    callbacks::call_handler(WindowId(window as usize), event);
-}
-
-unsafe extern "C" fn key_callback(
-    window: *mut sys::GLFWwindow,
-    key: c_int,
-    scancode: c_int,
-    action: c_int,
-    mods: c_int,
-) {
-    let time = sys::glfwGetTime();
-    let key = Key::try_from(key);
-    let action = Action::try_from(action);
-    let mods = Modifiers::from_bits_truncate(mods);
-    match (key, action) {
-        (Ok(key), Ok(action)) => {
-            let event = (time, WindowEvent::Key(key, scancode, action, mods));
-            callbacks::call_handler(WindowId(window as usize), event);
-        }
-        (Err(key), Ok(_)) => {
-            log::warn!("ignoring unidentified key: {}", key);
-        }
-        (Ok(key), Err(action)) => {
-            log::warn!(
-                "ignoring unidentified action for key ({:?}): {}",
-                key,
-                action
-            );
-        }
-        (Err(key), Err(action)) => {
-            log::warn!(
-                "ignoring unidentified key and action: key = {}, action = {}",
-                key,
-                action
-            );
-        }
-    }
-}
-
-unsafe extern "C" fn char_callback(window: *mut sys::GLFWwindow, codepoint: c_uint) {
-    let time = sys::glfwGetTime();
-    let event = (time, WindowEvent::Char(codepoint));
-    callbacks::call_handler(WindowId(window as usize), event);
-}
-
-unsafe extern "C" fn char_mods_callback(
-    window: *mut sys::GLFWwindow,
-    codepoint: c_uint,
-    mods: c_int,
-) {
-    let time = sys::glfwGetTime();
-    let mods = Modifiers::from_bits_truncate(mods);
-    #[allow(deprecated)]
-    let event = (time, WindowEvent::CharModifiers(codepoint, mods));
-    callbacks::call_handler(WindowId(window as usize), event);
-}
-
-unsafe extern "C" fn drop_callback(
-    window: *mut sys::GLFWwindow,
-    count: c_int,
-    paths: *mut *const c_char,
-) {
-    let time = sys::glfwGetTime();
-    let mut filepaths = Vec::with_capacity(count as usize);
-
-    for i in 0..count as isize {
-        if let Ok(path) = CStr::from_ptr(*paths.offset(i)).to_str() {
-            filepaths.push(PathBuf::from(path));
-        } else {
-            log::warn!("file drop callback received invalid path");
-        }
-    }
-
-    let event = (time, WindowEvent::FileDrop(filepaths));
-    callbacks::call_handler(WindowId(window as usize), event);
-}
-
-unsafe extern "C" fn scroll_callback(
-    window: *mut sys::GLFWwindow,
-    xoffset: c_double,
-    yoffset: c_double,
-) {
-    let time = sys::glfwGetTime();
-    let event = (time, WindowEvent::Scroll(xoffset, yoffset));
-    callbacks::call_handler(WindowId(window as usize), event);
-}
-
-unsafe extern "C" fn cursor_position_callback(
-    window: *mut sys::GLFWwindow,
-    xpos: c_double,
-    ypos: c_double,
-) {
-    let time = sys::glfwGetTime();
-    let event = (time, WindowEvent::CursorPos(xpos, ypos));
-    callbacks::call_handler(WindowId(window as usize), event);
-}
-
-unsafe extern "C" fn window_position_callback(
-    window: *mut sys::GLFWwindow,
-    xpos: c_int,
-    ypos: c_int,
-) {
-    let time = sys::glfwGetTime();
-    let event = (time, WindowEvent::Pos(xpos, ypos));
-    callbacks::call_handler(WindowId(window as usize), event);
-}
-
-unsafe extern "C" fn window_size_callback(
-    window: *mut sys::GLFWwindow,
-    width: c_int,
-    height: c_int,
-) {
-    let time = sys::glfwGetTime();
-    let event = (time, WindowEvent::Size(width, height));
-    callbacks::call_handler(WindowId(window as usize), event);
-}
-
-unsafe extern "C" fn cursor_entered_callback(window: *mut sys::GLFWwindow, entered: c_int) {
-    let time = sys::glfwGetTime();
-    let event = (time, WindowEvent::CursorEnter(entered != 0));
-    callbacks::call_handler(WindowId(window as usize), event);
-}
-
-unsafe extern "C" fn mouse_button_callback(
-    window: *mut sys::GLFWwindow,
-    button: c_int,
-    action: c_int,
-    mods: c_int,
-) {
-    let time = sys::glfwGetTime();
-    let button = MouseButton::try_from(button);
-    let action = Action::try_from(action);
-    let mods = Modifiers::from_bits_truncate(mods);
-    match (button, action) {
-        (Ok(button), Ok(action)) => {
-            let event = (time, WindowEvent::MouseButton(button, action, mods));
-            callbacks::call_handler(WindowId(window as usize), event);
-        }
-        (Err(key), Ok(_)) => {
-            log::warn!("ignoring unidentified mouse button: {}", key);
-        }
-        (Ok(key), Err(action)) => {
-            log::warn!(
-                "ignoring unidentified action for mouse button ({:?}): {}",
-                key,
-                action
-            );
-        }
-        (Err(key), Err(action)) => {
-            log::warn!(
-                "ignoring unknown mouse button and action: key = {}, action = {}",
-                key,
-                action
-            );
-        }
-    }
-}
-
-unsafe extern "C" fn window_close_callback(window: *mut sys::GLFWwindow) {
-    let time = sys::glfwGetTime();
-    let event = (time, WindowEvent::Close);
-    callbacks::call_handler(WindowId(window as usize), event);
-}
-
-unsafe extern "C" fn window_focus_callback(window: *mut sys::GLFWwindow, focused: c_int) {
-    let time = sys::glfwGetTime();
-    let event = (time, WindowEvent::Focus(focused != 0));
-    callbacks::call_handler(WindowId(window as usize), event);
-}
-
-unsafe extern "C" fn window_iconify_callback(window: *mut sys::GLFWwindow, iconify: c_int) {
-    let time = sys::glfwGetTime();
-    let event = (time, WindowEvent::Iconify(iconify != 0));
-    callbacks::call_handler(WindowId(window as usize), event);
-}
-
-unsafe extern "C" fn framebuffer_size_callback(
-    window: *mut sys::GLFWwindow,
-    width: c_int,
-    height: c_int,
-) {
-    let time = sys::glfwGetTime();
-    let event = (time, WindowEvent::FramebufferSize(width, height));
-    callbacks::call_handler(WindowId(window as usize), event);
-}
-
-unsafe extern "C" fn content_scale_callback(
-    window: *mut sys::GLFWwindow,
-    xscale: c_float,
-    yscale: c_float,
-) {
-    let time = sys::glfwGetTime();
-    let event = (time, WindowEvent::ContentScale(xscale, yscale));
-    callbacks::call_handler(WindowId(window as usize), event);
-}
-
-unsafe extern "C" fn window_maximize_callback(window: *mut sys::GLFWwindow, maximized: c_int) {
-    let time = sys::glfwGetTime();
-    let event = (time, WindowEvent::Maximize(maximized != 0));
-    callbacks::call_handler(WindowId(window as usize), event);
-}
-
-pub unsafe fn set_window_callbacks(window: *mut sys::GLFWwindow) {
-    sys::glfwSetKeyCallback(window, Some(key_callback));
-    sys::glfwSetCharCallback(window, Some(char_callback));
-    sys::glfwSetDropCallback(window, Some(drop_callback));
-    sys::glfwSetScrollCallback(window, Some(scroll_callback));
-    sys::glfwSetCharModsCallback(window, Some(char_mods_callback));
-    sys::glfwSetCursorPosCallback(window, Some(cursor_position_callback));
-    sys::glfwSetWindowPosCallback(window, Some(window_position_callback));
-    sys::glfwSetWindowSizeCallback(window, Some(window_size_callback));
-    sys::glfwSetCursorEnterCallback(window, Some(cursor_entered_callback));
-    sys::glfwSetMouseButtonCallback(window, Some(mouse_button_callback));
-    sys::glfwSetWindowCloseCallback(window, Some(window_close_callback));
-    sys::glfwSetWindowFocusCallback(window, Some(window_focus_callback));
-    sys::glfwSetWindowIconifyCallback(window, Some(window_iconify_callback));
-    sys::glfwSetWindowRefreshCallback(window, Some(window_refresh_callback));
-    sys::glfwSetFramebufferSizeCallback(window, Some(framebuffer_size_callback));
-    sys::glfwSetWindowContentScaleCallback(window, Some(content_scale_callback));
-    sys::glfwSetWindowMaximizeCallback(window, Some(window_maximize_callback));
 }
 
 unsafe extern "C" fn monitor_callback(monitor: *mut sys::GLFWmonitor, event: c_int) {
