@@ -1,6 +1,4 @@
-use core::time::Duration;
-
-use glfw3::{Glfw, WindowEvent};
+use glfw3::{Glfw, Window, WindowEvent};
 
 mod gl;
 use gl::{Gl, GL_COLOR_BUFFER_BIT};
@@ -12,16 +10,16 @@ fn main() {
         .create_window(&[], 800, 600, "GLFW Window", None, None)
         .expect("Failed to create window");
 
-    window
-        .make_context_current()
-        .expect("glfwMakeContextCurrent");
+    unsafe {
+        Window::make_context_current(Some(window.window_id()))
+            .expect("Failed to make context current");
+    }
 
-    let gl = Gl::init().expect("Initialize GL");
+    let gl = Gl::init().expect("Failed to initialize GL");
 
-    let timeout = Duration::from_secs(1);
     let mut running = true;
     while running {
-        let result = glfw.wait_events_timeout(timeout, &mut |_window_id, (_time, event)| {
+        let result = glfw.wait_events(&mut |_window_id, (_time, event)| {
             println!("{:?}", event);
             match event {
                 WindowEvent::Close => {

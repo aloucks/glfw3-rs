@@ -2,6 +2,7 @@ use core::ffi::{c_int, CStr};
 use glfw3_sys::{self as sys};
 use std::{
     ffi::CString,
+    fmt::Pointer,
     marker::PhantomData,
     mem,
     path::PathBuf,
@@ -148,6 +149,26 @@ pub struct Error {
     pub desc: String,
 }
 
+impl core::error::Error for Error {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        None
+    }
+
+    fn description(&self) -> &str {
+        &self.desc
+    }
+
+    fn cause(&self) -> Option<&dyn core::error::Error> {
+        self.source()
+    }
+}
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{} ({})", self.desc, self.code)
+    }
+}
+
 fn unknown_error() -> Error {
     Error {
         code: -1,
@@ -276,10 +297,8 @@ impl Glfw {
                 sys::glfwCreateWindow(width, height, title.as_ptr(), monitor_ptr, share_ptr);
             Glfw::get_error().map_err(|err| CreateWindowError::CreateWindow(err))?;
             callbacks::set_window_callbacks(window_ptr);
-            Ok(Window {
-                window_ptr,
-                _terminate: Rc::clone(&self.terminate),
-            })
+            let terminate = Some(Rc::clone(&self.terminate));
+            Ok(Window::new(window_ptr, terminate))
         }
     }
 
@@ -298,6 +317,21 @@ impl Glfw {
                 })
             }
             monitors
+        }
+    }
+
+    #[doc(alias = "glfwGetPrimaryMonitor")]
+    pub fn get_primary_monitor(&self) -> Option<Monitor> {
+        unsafe {
+            let monitor_ptr = sys::glfwGetPrimaryMonitor();
+            if monitor_ptr.is_null() {
+                None
+            } else {
+                Some(Monitor {
+                    monitor_ptr,
+                    _terminate: Rc::clone(&self.terminate),
+                })
+            }
         }
     }
 
