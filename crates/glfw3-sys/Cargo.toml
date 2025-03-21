@@ -9,6 +9,9 @@ build = "build.rs"
 [build-dependencies]
 cmake = "0.1"
 
+[dev-dependencies]
+parking_lot = "0.12"
+
 [features]
 default = ["vendored"]
 wayland = []
